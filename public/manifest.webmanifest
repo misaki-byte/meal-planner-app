@@ -1,0 +1,17 @@
+{
+  "id": "/",
+  "name": "まいにちの台所 — 家族の献立と買い物リスト",
+  "short_name": "まいにちの台所",
+  "description": "家族のレシピ、今週の献立、買い物リストをひとつに。",
+  "lang": "ja",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f7f9f5",
+  "theme_color": "#f7f9f5",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
