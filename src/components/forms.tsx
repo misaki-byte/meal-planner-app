@@ -1,6 +1,8 @@
 "use client";
 import { useState } from "react";
 import { Plus, Trash2, Star } from "lucide-react";
+import { BulkIngredients } from "./bulk-ingredients";
+import { appendImportedIngredients } from "@/lib/ingredient-parser";
 import {
   CATEGORIES,
   newId,
@@ -43,10 +45,17 @@ export function RecipeForm({
     ),
   );
   const [error, setError] = useState("");
+  const [bulkPending, setBulkPending] = useState(false);
   return (
     <form
       onSubmit={async (e) => {
         e.preventDefault();
+        if (bulkPending) {
+          setError(
+            "貼り付けた材料を食材欄に追加するか、貼り付け内容を破棄してから保存してください。",
+          );
+          return;
+        }
         const result = recipeSchema.safeParse(draft);
         if (!result.success) {
           setError(
@@ -107,6 +116,42 @@ export function RecipeForm({
             </div>
           </div>
         </div>
+        <BulkIngredients
+          existing={draft.ingredients}
+          servings={draft.servings}
+          onServings={(servings) => setDraft({ ...draft, servings })}
+          onPendingChange={setBulkPending}
+          onAppend={(additions) => {
+            // Only the untouched placeholder of a NEW recipe may be replaced.
+            // Every row of an existing recipe, including blank rows, is retained.
+            const only = draft.ingredients[0];
+            const emptyPlaceholder =
+              !recipe &&
+              draft.ingredients.length === 1 &&
+              only.name === "" &&
+              only.quantity === 1 &&
+              only.unit === "個" &&
+              only.category === "野菜・果物";
+            try {
+              const ingredients = appendImportedIngredients(
+                emptyPlaceholder ? [] : draft.ingredients,
+                additions,
+              );
+              setDraft({ ...draft, ingredients });
+              setError("");
+              return null;
+            } catch (error) {
+              return error instanceof Error
+                ? error.message
+                : "材料を追加できませんでした。";
+            }
+          }}
+        />
+        {!recipe && (
+          <p className="muted">
+            新規レシピの最初の空欄が未入力の場合は、確認した材料に置き換えます。
+          </p>
+        )}
         <div className="section-line">
           <h3>食材</h3>
           <span className="muted">基準人数分の分量を入力</span>
@@ -211,6 +256,8 @@ export function RecipeForm({
             "小さじ",
             "袋",
             "適量",
+            "少々",
+            "ひとつまみ",
           ].map((u) => (
             <option key={u} value={u} />
           ))}

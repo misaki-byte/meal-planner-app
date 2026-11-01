@@ -2583,3 +2583,99 @@ input[type="checkbox"] {
     grid-row: 1 / span 2;
   }
 }
+.bulk-ingredients {
+  margin: 20px 0;
+  padding: 16px;
+  border: 1px solid var(--border, #dedbd3);
+  border-radius: 12px;
+  background: var(--surface, #fff);
+  min-width: 0;
+}
+.bulk-ingredients .muted {
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+.bulk-actions,
+.bulk-servings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.bulk-actions .button {
+  white-space: normal;
+}
+.bulk-preview {
+  margin-top: 20px;
+}
+.bulk-servings p {
+  flex-basis: 100%;
+  margin: 4px 0;
+}
+.bulk-headings {
+  margin: 12px 0;
+  overflow-wrap: anywhere;
+}
+.bulk-headings summary {
+  cursor: pointer;
+  padding: 10px 0;
+}
+.bulk-review-list {
+  display: grid;
+  gap: 12px;
+  margin: 16px 0;
+}
+.bulk-review-card {
+  border: 1px solid var(--border, #dedbd3);
+  border-radius: 10px;
+  padding: 12px;
+  min-width: 0;
+}
+.bulk-choice {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-height: 44px;
+  cursor: pointer;
+}
+.bulk-choice input {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+.bulk-source {
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  margin: 8px 0 12px;
+}
+.bulk-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.bulk-fields .field {
+  min-width: 0;
+  margin: 0;
+}
+.bulk-fields input,
+.bulk-fields select {
+  width: 100%;
+  min-width: 0;
+  font-size: 16px;
+  min-height: 44px;
+}
+.bulk-name,
+.bulk-category {
+  grid-column: 1 / -1;
+}
+.bulk-review-notice {
+  margin-top: 12px;
+  padding: 10px;
+  border-radius: 8px;
+  background: #fff5df;
+  color: #674407;
+}
+.bulk-review-notice p {
+  font-size: 0.85rem;
+  margin: 6px 0;
+}
