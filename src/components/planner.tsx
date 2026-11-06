@@ -31,6 +31,7 @@ import {
 import {
   addMeal,
   CATEGORIES,
+  deleteCompletedShopping,
   deleteStore,
   formatQuantity,
   newId,
@@ -289,8 +290,21 @@ export default function Planner() {
               {tab === "shopping" && (
                 <ShoppingView
                   state={state}
+                  saving={saving}
                   onAdd={() => setEditor({ type: "shopping" })}
                   onEdit={(item) => setEditor({ type: "shopping", item })}
+                  onDelete={(item) =>
+                    setConfirm({
+                      title: "完了済みの商品を削除しますか？",
+                      description: `「${item.name}」${formatQuantity(item.quantity)}${item.unit}を買い物リストから完全に削除します。${item.source === "auto" ? "この献立分は購入済みとして扱い、追加の献立や増員で必要になった分は再表示します。" : ""}レシピ帳と今週の献立は残ります。この削除は取り消せません。`,
+                      label: "削除する",
+                      action: () =>
+                        app.commit(
+                          (s) => deleteCompletedShopping(s, item.id),
+                          "完了済みの商品を削除しました",
+                        ),
+                    })
+                  }
                   onToggle={(id) =>
                     void app.commit(
                       (s) => ({
@@ -854,23 +868,103 @@ function MealsView({
 
 function ShoppingView({
   state,
+  saving,
   onAdd,
   onEdit,
   onToggle,
+  onDelete,
 }: {
   state: PlannerState;
+  saving: boolean;
   onAdd: () => void;
   onEdit: (i: ShoppingItem) => void;
   onToggle: (id: string) => void;
+  onDelete: (i: ShoppingItem) => void;
 }) {
   const [store, setStore] = useState("all");
-  const [hideChecked, setHideChecked] = useState(false);
-  const checked = state.shopping.filter((i) => i.checked).length;
   const matches = (i: ShoppingItem) =>
     store === "all" || (store === "none" ? !i.storeId : i.storeId === store);
-  const filtered = state.shopping
-    .filter(matches)
-    .filter((i) => !hideChecked || !i.checked);
+  const filtered = state.shopping.filter(matches);
+  const pending = filtered.filter((i) => !i.checked);
+  const completed = filtered.filter((i) => i.checked);
+  const renderCategories = (list: ShoppingItem[]) => (
+    <div className="shopping-categories">
+      {CATEGORIES.map((category) => {
+        const items = list.filter((i) => i.category === category);
+        if (!items.length) return null;
+        return (
+          <section className="shopping-category" key={category}>
+            <div className="category-heading">
+              <h3>{category}</h3>
+              <span>{items.length} 商品</span>
+            </div>
+            {items.map((item) => (
+              <div
+                className={`shopping-item ${item.checked ? "is-checked" : ""}`}
+                key={item.id}
+              >
+                <label className="shopping-check">
+                  <input
+                    type="checkbox"
+                    checked={item.checked}
+                    disabled={saving}
+                    onChange={() => onToggle(item.id)}
+                    aria-label={
+                      item.checked
+                        ? `${item.name}を買うものに戻す`
+                        : `${item.name}を購入済みにする`
+                    }
+                  />
+                  <span className="check-visual">
+                    <Check size={22} />
+                  </span>
+                  <span className="shopping-item-info">
+                    <strong>
+                      {item.name}
+                      <span className="item-quantity">
+                        {formatQuantity(item.quantity)}
+                        <small>{item.unit}</small>
+                      </span>
+                    </strong>
+                    <span className="item-meta">
+                      {state.stores.find((s) => s.id === item.storeId)?.name ??
+                        "お店未定"}
+                      {item.source === "manual" && (
+                        <span className="manual-badge">手動追加</span>
+                      )}
+                      {item.carryQuantity > 0 && <span>引継ぎ分を含む</span>}
+                    </span>
+                  </span>
+                </label>
+                <div className="shopping-item-actions">
+                  <button
+                    type="button"
+                    className="icon-button"
+                    disabled={saving}
+                    aria-label={`${item.name}のお店・内容を編集`}
+                    onClick={() => onEdit(item)}
+                  >
+                    <SlidersHorizontal size={18} />
+                  </button>
+                  {item.checked && (
+                    <button
+                      type="button"
+                      className="icon-button danger"
+                      disabled={saving}
+                      aria-label={`${item.name}を完了済みから削除`}
+                      onClick={() => onDelete(item)}
+                    >
+                      <Trash2 size={19} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </section>
+        );
+      })}
+    </div>
+  );
   return (
     <>
       <PageHeading
@@ -878,7 +972,7 @@ function ShoppingView({
         title="買い物リスト"
         description="必要なものを、いつものお店で。"
       >
-        <button className="button primary" onClick={onAdd}>
+        <button className="button primary" disabled={saving} onClick={onAdd}>
           <Plus size={19} />
           商品を追加
         </button>
@@ -888,12 +982,12 @@ function ShoppingView({
           <ShoppingBasket size={27} />
         </span>
         <div>
-          <strong>あと {state.shopping.length - checked} 商品</strong>
-          <p>献立の食材を自動集計 · 手動追加もずっと残ります</p>
+          <strong>あと {pending.length} 商品</strong>
+          <p>選択中のお店 · チェックした商品は下の完了済みへ</p>
         </div>
         <span className="shopping-fraction">
-          {checked}
-          <small> / {state.shopping.length} 購入済み</small>
+          {completed.length}
+          <small> / {filtered.length} 購入済み</small>
         </span>
       </div>
       <div className="store-tabs" role="tablist" aria-label="購入するお店">
@@ -925,101 +1019,67 @@ function ShoppingView({
           </button>
         ))}
       </div>
-      <div className="section-line shopping-toolbar">
-        <span className="muted">同じ食材・単位は自動でひとまとめ</span>
-        <label className="toggle-label">
-          <input
-            type="checkbox"
-            checked={hideChecked}
-            onChange={(e) => setHideChecked(e.target.checked)}
-          />
-          購入済みを隠す
-        </label>
-      </div>
       <div id="shopping-panel" role="tabpanel" aria-labelledby={`tab-${store}`}>
-        {!filtered.length ? (
-          <Empty
-            icon={<CheckCheck size={32} />}
-            title={
-              state.shopping.length
-                ? "このリストはすっきり！"
-                : "買い物リストはまだ空です"
-            }
-            description={
-              state.shopping.length
-                ? "ほかのお店のリストや、購入済みの商品も確認できます。"
-                : "献立を選ぶと食材が自動で追加されます。日用品などは手動で追加できます。"
-            }
-            action={
-              <button className="button secondary" onClick={onAdd}>
-                <Plus size={17} />
-                商品を追加
-              </button>
-            }
-          />
-        ) : (
-          <div className="shopping-categories">
-            {CATEGORIES.map((category) => {
-              const items = filtered
-                .filter((i) => i.category === category)
-                .sort((a, b) => Number(a.checked) - Number(b.checked));
-              if (!items.length) return null;
-              return (
-                <section className="shopping-category" key={category}>
-                  <div className="category-heading">
-                    <h2>{category}</h2>
-                    <span>{items.filter((i) => !i.checked).length} 商品</span>
-                  </div>
-                  {items.map((item) => (
-                    <div
-                      className={`shopping-item ${item.checked ? "is-checked" : ""}`}
-                      key={item.id}
-                    >
-                      <label className="shopping-check">
-                        <input
-                          type="checkbox"
-                          checked={item.checked}
-                          onChange={() => onToggle(item.id)}
-                          aria-label={`${item.name}を購入済みにする`}
-                        />
-                        <span className="check-visual">
-                          <Check size={22} />
-                        </span>
-                        <span className="shopping-item-info">
-                          <strong>
-                            {item.name}
-                            <span className="item-quantity">
-                              {formatQuantity(item.quantity)}
-                              <small>{item.unit}</small>
-                            </span>
-                          </strong>
-                          <span className="item-meta">
-                            {state.stores.find((s) => s.id === item.storeId)
-                              ?.name ?? "お店未定"}
-                            {item.source === "manual" && (
-                              <span className="manual-badge">手動追加</span>
-                            )}
-                            {item.carryQuantity > 0 && (
-                              <span>引継ぎ分を含む</span>
-                            )}
-                          </span>
-                        </span>
-                      </label>
-                      <button
-                        type="button"
-                        className="icon-button"
-                        aria-label={`${item.name}のお店・内容を編集`}
-                        onClick={() => onEdit(item)}
-                      >
-                        <SlidersHorizontal size={18} />
-                      </button>
-                    </div>
-                  ))}
-                </section>
-              );
-            })}
+        <section aria-label="買うもの" className="shopping-pending">
+          <div className="section-line shopping-toolbar">
+            <h2>
+              買うもの <span className="muted">{pending.length} 商品</span>
+            </h2>
           </div>
-        )}
+          {pending.length ? (
+            renderCategories(pending)
+          ) : (
+            <Empty
+              icon={<CheckCheck size={32} />}
+              title={
+                completed.length
+                  ? "買うものはすべて完了しました"
+                  : "このお店の買うものはありません"
+              }
+              description={
+                completed.length
+                  ? "購入済みの商品は下の「完了済み」から確認できます。"
+                  : "献立の食材や、手動で追加した商品をここに表示します。"
+              }
+              action={
+                <button
+                  className="button secondary"
+                  disabled={saving}
+                  onClick={onAdd}
+                >
+                  <Plus size={17} />
+                  商品を追加
+                </button>
+              }
+            />
+          )}
+        </section>
+        <details className="shopping-completed">
+          <summary>
+            <CheckCheck size={22} />
+            <span>
+              完了済み{" "}
+              <span className="completed-count">{completed.length} 商品</span>
+            </span>
+            <ChevronRight size={20} className="completed-chevron" />
+          </summary>
+          <div
+            className="shopping-completed-body"
+            role="region"
+            aria-label="完了済みの商品"
+          >
+            <p className="muted">
+              チェックを外すと「買うもの」に戻ります。ゴミ箱で削除する前に確認します。
+            </p>
+            {completed.length ? (
+              renderCategories(completed)
+            ) : (
+              <p className="completed-empty">
+                このお店の完了済みの商品はありません。
+              </p>
+            )}
+          </div>
+        </details>
       </div>
       <div className="shopping-footnote">
         <CloudCheck size={16} />

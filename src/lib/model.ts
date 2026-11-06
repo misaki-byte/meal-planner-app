@@ -226,6 +226,40 @@ export function removeMeal(state: PlannerState, id: string) {
   });
 }
 
+/** Removing a completed auto row consumes its demand, using existing meal stock credits.
+ * Credits belong to these meal instances: new meals and amounts above the credit still
+ * generate shopping rows. No deleted shopping row or new persistence field is needed.
+ */
+export function deleteCompletedShopping(
+  state: PlannerState,
+  itemId: string,
+): PlannerState {
+  const item = state.shopping.find((i) => i.id === itemId);
+  if (!item?.checked) throw new Error("完了済みの商品だけ削除できます。");
+  const key = ingredientKey(item.name, item.unit);
+  return syncShopping({
+    ...state,
+    shopping: state.shopping.filter((i) => i.id !== itemId),
+    week:
+      item.source === "manual"
+        ? state.week
+        : {
+            ...state.week,
+            meals: state.week.meals.map((meal) => {
+              const required = mealIngredients(meal).get(key)?.quantity;
+              if (!required) return meal;
+              return {
+                ...meal,
+                stocked: {
+                  ...meal.stocked,
+                  [key]: Math.max(meal.stocked[key] ?? 0, required),
+                },
+              };
+            }),
+          },
+  });
+}
+
 /** Archive atomically; purchased ingredients for unfinished meals become stock credits. */
 export function rollover(state: PlannerState): PlannerState {
   const pending = structuredClone(state.week.meals.filter((m) => !m.cooked));

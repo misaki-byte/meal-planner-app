@@ -46,7 +46,7 @@ test("接続前ガイドを表示し、お試しから献立・買い物・引�
   await page.getByRole("tab", { name: /すべて/ }).click();
   await page
     .getByRole("checkbox", { name: "鶏もも肉を購入済みにする", exact: true })
-    .check();
+    .click();
   await page
     .getByRole("navigation")
     .getByRole("button", { name: "献立", exact: true })
