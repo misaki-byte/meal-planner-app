@@ -5,6 +5,7 @@ import {
   type Route,
 } from "@playwright/test";
 import type { PlannerState } from "../../src/lib/model";
+import { demoState } from "../../src/lib/model";
 
 test.skip(
   !process.env.E2E_AUTH,
@@ -92,6 +93,79 @@ async function login(page: import("@playwright/test").Page, email: string) {
     page.getByRole("heading", { name: "今週の献立", exact: true }),
   ).toBeVisible();
 }
+
+test("貼り付けた材料を既存RPCで保存・復元し、登録済みレシピ・献立・買い物を保つ", async ({
+  page,
+  context,
+}) => {
+  const original = demoState();
+  const before = structuredClone(original);
+  const rows = new Map<string, Row>([[A, { document: original, revision: 1 }]]);
+  await mockApi(context, rows);
+  await login(page, "a@example.com");
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "レシピ", exact: true })
+    .click();
+  await page
+    .getByRole("searchbox", { name: "レシピを検索" })
+    .fill(original.recipes[0].name);
+  await page.locator(".recipe-card-main").click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("button", { name: "レシピ帳を編集" }).click();
+  await dialog
+    .getByLabel("材料をまとめて貼り付ける")
+    .fill("【材料（2人分）】\n玉ねぎ 1/2個\n塩 少々");
+  await dialog
+    .getByRole("button", { name: "材料を解析する", exact: true })
+    .click();
+  expect(rows.get(A)?.revision).toBe(1);
+  await dialog
+    .getByRole("button", { name: "確認した2行を食材欄に追加" })
+    .click();
+  expect(rows.get(A)?.revision).toBe(1);
+  await dialog
+    .getByRole("button", { name: "レシピを保存", exact: true })
+    .click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  const saved = rows.get(A)!.document;
+  expect(rows.get(A)?.revision).toBe(2);
+  expect(saved.recipes[0].ingredients.slice(0, 3)).toEqual(
+    before.recipes[0].ingredients,
+  );
+  expect(
+    saved.recipes[0].ingredients
+      .slice(3)
+      .map((i) => [i.name, i.quantity, i.unit]),
+  ).toEqual([
+    ["玉ねぎ", 0.5, "個"],
+    ["塩", 1, "少々"],
+  ]);
+  expect(saved.recipes[0].servings).toBe(before.recipes[0].servings);
+  expect(saved.recipes.slice(1)).toEqual(before.recipes.slice(1));
+  expect(saved.week).toEqual(before.week);
+  expect(saved.shopping).toEqual(before.shopping);
+  expect(saved.history).toEqual(before.history);
+  expect(saved.schemaVersion).toBe(1);
+  expect(Object.keys(saved.recipes[0].ingredients[3]).sort()).toEqual(
+    ["id", "name", "quantity", "unit", "category"].sort(),
+  );
+  await page.reload();
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "レシピ", exact: true })
+    .click();
+  await page
+    .getByRole("searchbox", { name: "レシピを検索" })
+    .fill(original.recipes[0].name);
+  await page.locator(".recipe-card-main").click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "レシピ帳を編集" })
+    .click();
+  await expect(page.getByLabel("食材4の分量")).toHaveValue("0.5");
+  await expect(page.getByLabel("食材5の単位")).toHaveValue("少々");
+});
 
 test("認証SDKから保存し、再起動・別端末で復元する。競合を拒否しログアウトで画面を消去する", async ({
   browser,
