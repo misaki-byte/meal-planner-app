@@ -5,6 +5,7 @@ import { BulkIngredients } from "./bulk-ingredients";
 import { appendImportedIngredients } from "@/lib/ingredient-parser";
 import {
   CATEGORIES,
+  getDefaultStoreId,
   newId,
   recipeSchema,
   shoppingSchema,
@@ -327,7 +328,7 @@ export function ShoppingForm({
         quantity: 1,
         unit: "個",
         category: "その他",
-        storeId: null,
+        storeId: getDefaultStoreId(state),
         checked: false,
         carryQuantity: 0,
       },

@@ -56,6 +56,7 @@ const weekSchema = z.object({
 export const stateSchema = z.object({
   schemaVersion: z.literal(1),
   defaultServings: servings,
+  defaultStoreId: id.nullable().optional(),
   recipes: z.array(recipeSchema).max(2000),
   stores: z.array(z.object({ id, name })).max(100),
   week: weekSchema,
@@ -85,6 +86,22 @@ const normalize = (s: string) =>
 // JSON encoding prevents collisions between ingredient names and unit delimiters.
 export const ingredientKey = (name: string, unit: string) =>
   JSON.stringify([normalize(name), normalize(unit)]);
+
+/** Older documents have no defaultStoreId. Resolve their existing Kanesue only;
+ * never add a deleted store or change assignments on existing shopping rows.
+ * Explicit null means the user selected "お店未定" (or deleted the default).
+ */
+export function getDefaultStoreId(
+  state: Pick<PlannerState, "stores" | "defaultStoreId">,
+): string | null {
+  if (state.defaultStoreId === undefined)
+    return (
+      state.stores.find((s) => normalize(s.name) === "カネスエ")?.id ?? null
+    );
+  return state.stores.some((s) => s.id === state.defaultStoreId)
+    ? state.defaultStoreId
+    : null;
+}
 export function monday(date = new Date()): string {
   const d = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12);
   d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
@@ -104,14 +121,18 @@ export function weekLabel(date: string) {
   return `${fmt(date)} — ${fmt(addDays(date, 6))}`;
 }
 export function createState(): PlannerState {
+  const stores = ["カネスエ", "業務スーパー", "100均", "コストコ"].map(
+    (name) => ({
+      id: newId(),
+      name,
+    }),
+  );
   return {
     schemaVersion: 1,
     defaultServings: 4,
+    defaultStoreId: stores[0].id,
     recipes: [],
-    stores: ["カネスエ", "業務スーパー", "100均", "コストコ"].map((name) => ({
-      id: newId(),
-      name,
-    })),
+    stores,
     week: { id: newId(), startDate: monday(), meals: [] },
     shopping: [],
     history: [],
@@ -169,7 +190,8 @@ export function syncShopping(state: PlannerState): PlannerState {
       unit: old?.unit ?? ingredient.unit,
       quantity: amount,
       category: old?.category ?? ingredient.category,
-      storeId: old?.storeId ?? null,
+      // null is a deliberate/legacy assignment too. Default only a NEW row.
+      storeId: old ? old.storeId : getDefaultStoreId(state),
       carryQuantity: old?.carryQuantity ?? 0,
       checked: !!old?.checked && amount <= old.quantity,
     });
@@ -314,6 +336,7 @@ export function deleteStore(
 ): PlannerState {
   return {
     ...state,
+    ...(getDefaultStoreId(state) === storeId ? { defaultStoreId: null } : {}),
     stores: state.stores.filter((s) => s.id !== storeId),
     shopping: state.shopping.map((i) =>
       i.storeId === storeId ? { ...i, storeId: null } : i,
@@ -410,9 +433,5 @@ export function demoState() {
   for (const recipe of state.recipes.slice(0, 5))
     state = addMeal(state, recipe.id);
   state = updateMeal(state, state.week.meals[1].id, { cooked: true });
-  state.shopping = state.shopping.map((i) => ({
-    ...i,
-    storeId: state.stores[0].id,
-  }));
   return state;
 }

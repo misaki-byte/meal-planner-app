@@ -34,6 +34,7 @@ import {
   deleteCompletedShopping,
   deleteStore,
   formatQuantity,
+  getDefaultStoreId,
   newId,
   removeMeal,
   rollover,
@@ -340,11 +341,17 @@ export default function Planner() {
                   onDefault={(n) =>
                     app.commit((s) => ({ ...s, defaultServings: n }))
                   }
+                  onDefaultStore={(storeId) =>
+                    app.commit(
+                      (s) => ({ ...s, defaultStoreId: storeId }),
+                      "買い物の初期店舗を保存しました",
+                    )
+                  }
                   onStore={(store) => setEditor({ type: "store", ...store })}
                   onDeleteStore={(store) =>
                     setConfirm({
                       title: "お店を削除しますか？",
-                      description: `「${store.name}」を削除します。このお店の商品は「お店未定」に移動します。商品と履歴は残ります。`,
+                      description: `「${store.name}」を削除します。このお店の商品は「お店未定」に移動します。商品と履歴は残ります。${getDefaultStoreId(state) === store.id ? "買い物の初期店舗も「お店未定」になります。設定で選び直せます。" : ""}`,
                       label: "削除する",
                       action: () => app.commit((s) => deleteStore(s, store.id)),
                     })
@@ -491,6 +498,8 @@ export default function Planner() {
                 }
                 const ok = await app.commit((s) => ({
                   ...s,
+                  // Pin the legacy default by ID before a store can be renamed.
+                  defaultStoreId: getDefaultStoreId(s),
                   stores: editor.id
                     ? s.stores.map((store) =>
                         store.id === editor.id ? { ...store, name } : store,
@@ -1338,6 +1347,7 @@ function SettingsView({
   email,
   saving,
   onDefault,
+  onDefaultStore,
   onStore,
   onDeleteStore,
   onHistory,
@@ -1348,12 +1358,19 @@ function SettingsView({
   email?: string;
   saving: boolean;
   onDefault: (n: number) => Promise<boolean>;
+  onDefaultStore: (storeId: string | null) => Promise<boolean>;
   onStore: (store?: { id: string; name: string }) => void;
   onDeleteStore: (s: { id: string; name: string }) => void;
   onHistory: () => void;
   onLogout: () => void;
 }) {
   const [people, setPeople] = useState(state.defaultServings);
+  const [storeChoice, setStoreChoice] = useState(
+    getDefaultStoreId(state) ?? "",
+  );
+  const availableStoreChoice = state.stores.some((s) => s.id === storeChoice)
+    ? storeChoice
+    : "";
   const exportData = () => {
     const blob = new Blob([JSON.stringify(state, null, 2)], {
       type: "application/json",
@@ -1410,6 +1427,48 @@ function SettingsView({
               disabled={saving || people === state.defaultServings}
             >
               保存
+            </button>
+          </form>
+        </section>
+        <section className="settings-card" aria-label="買い物の初期店舗設定">
+          <h2>
+            <Store size={20} />
+            買い物の初期店舗
+          </h2>
+          <p className="muted">
+            新しく追加する材料・手動商品の購入先です。登録済みの商品や、個別に変更したお店は変わりません。
+          </p>
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              await onDefaultStore(availableStoreChoice || null);
+            }}
+          >
+            <label className="field spaced">
+              買い物の初期店舗
+              <select
+                aria-label="買い物の初期店舗"
+                value={availableStoreChoice}
+                disabled={saving}
+                onChange={(e) => setStoreChoice(e.target.value)}
+              >
+                <option value="">お店未定</option>
+                {state.stores.map((store) => (
+                  <option key={store.id} value={store.id}>
+                    {store.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="submit"
+              className="button secondary"
+              disabled={
+                saving ||
+                availableStoreChoice === (getDefaultStoreId(state) ?? "")
+              }
+            >
+              初期店舗を保存
             </button>
           </form>
         </section>
