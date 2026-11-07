@@ -978,7 +978,8 @@ input[type="checkbox"] {
   background: #f0f4eb;
   padding: 13px 19px;
 }
-.category-heading h2 {
+.category-heading h2,
+.category-heading h3 {
   font-size: 13px;
   font-weight: 600;
 }
@@ -1069,6 +1070,70 @@ input[type="checkbox"] {
   font-size: 11px;
   line-height: 1.8;
   margin-top: 27px;
+}
+.shopping-toolbar h2 {
+  font-size: 17px;
+  font-weight: 600;
+}
+.shopping-toolbar h2 .muted {
+  font-size: 12px;
+  font-weight: 400;
+  margin-left: 8px;
+}
+.shopping-completed {
+  margin-top: 28px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--paper);
+}
+.shopping-completed > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px;
+  min-height: 56px;
+  cursor: pointer;
+  list-style: none;
+  font-weight: 600;
+}
+.shopping-completed > summary::-webkit-details-marker {
+  display: none;
+}
+.shopping-completed > summary > span {
+  flex: 1;
+}
+.completed-count {
+  margin-left: 8px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+}
+.shopping-completed[open] .completed-chevron {
+  transform: rotate(90deg);
+}
+.shopping-completed-body {
+  padding: 0 12px 12px;
+}
+.shopping-completed-body > .muted,
+.completed-empty {
+  font-size: 12px;
+  line-height: 1.8;
+  padding: 4px 4px 14px;
+}
+.shopping-item-actions {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+.shopping-item-actions .icon-button {
+  min-width: 44px;
+  min-height: 44px;
+}
+.shopping-check {
+  min-height: 44px;
+}
+.shopping-item-info {
+  overflow-wrap: anywhere;
 }
 .recipe-toolbar {
   display: flex;

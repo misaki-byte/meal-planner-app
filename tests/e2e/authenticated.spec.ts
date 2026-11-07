@@ -94,6 +94,204 @@ async function login(page: import("@playwright/test").Page, email: string) {
   ).toBeVisible();
 }
 
+test("旧データの初期店舗をカネスエとして扱い、変更設定を保存・別端末で復元しても個別店舗を守る", async ({
+  page,
+  context,
+  browser,
+}) => {
+  const original = demoState();
+  delete original.defaultStoreId;
+  const gyomu = original.stores.find((s) => s.name === "業務スーパー")!.id;
+  const costco = original.stores.find((s) => s.name === "コストコ")!.id;
+  original.shopping.find((i) => i.name === "鶏もも肉")!.storeId = gyomu;
+  original.shopping.find((i) => i.name === "玉ねぎ")!.storeId = null;
+  const before = structuredClone(original);
+  const rows = new Map<string, Row>([[A, { document: original, revision: 1 }]]);
+  await mockApi(context, rows);
+  await login(page, "a@example.com");
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "設定", exact: true })
+    .click();
+  const setting = page.getByLabel("買い物の初期店舗", { exact: true });
+  await expect(setting.locator("option:checked")).toHaveText("カネスエ");
+  await setting.selectOption({ label: "コストコ" });
+  await page
+    .getByRole("button", { name: "初期店舗を保存", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "初期店舗を保存", exact: true }),
+  ).toBeDisabled();
+  expect(rows.get(A)!.document.defaultStoreId).toBe(costco);
+  expect(rows.get(A)!.document.shopping).toEqual(before.shopping);
+  expect(rows.get(A)!.document.recipes).toEqual(before.recipes);
+  expect(rows.get(A)!.document.week).toEqual(before.week);
+  await page.reload();
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "買い物", exact: true })
+    .click();
+  await page.getByRole("button", { name: "商品を追加", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(
+    dialog.getByLabel("購入するお店").locator("option:checked"),
+  ).toHaveText("コストコ");
+  await dialog.getByLabel("商品名", { exact: true }).fill("保存する洗剤");
+  await dialog
+    .getByRole("button", { name: "買い物リストに追加", exact: true })
+    .click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  expect(
+    rows.get(A)!.document.shopping.find((i) => i.name === "保存する洗剤")!
+      .storeId,
+  ).toBe(costco);
+  const otherContext = await browser.newContext();
+  try {
+    await mockApi(otherContext, rows);
+    const other = await otherContext.newPage();
+    await login(other, "a@example.com");
+    await other
+      .getByRole("navigation")
+      .getByRole("button", { name: "設定", exact: true })
+      .click();
+    await expect(
+      other
+        .getByLabel("買い物の初期店舗", { exact: true })
+        .locator("option:checked"),
+    ).toHaveText("コストコ");
+    await other
+      .getByRole("navigation")
+      .getByRole("button", { name: "レシピ", exact: true })
+      .click();
+    await other
+      .getByRole("button", {
+        name: "ふんわり卵のオムライスを今週の献立に追加",
+        exact: true,
+      })
+      .click();
+    await expect
+      .poll(() => rows.get(A)!.document.week.meals.length)
+      .toBe(before.week.meals.length + 1);
+    const saved = rows.get(A)!.document;
+    expect(saved.shopping.find((i) => i.name === "鶏もも肉")!.storeId).toBe(
+      gyomu,
+    );
+    expect(saved.shopping.find((i) => i.name === "玉ねぎ")!.storeId).toBeNull();
+    expect(saved.shopping.find((i) => i.name === "卵")!.storeId).toBe(costco);
+    expect(saved.recipes).toEqual(before.recipes);
+    expect(saved.defaultStoreId).toBe(costco);
+  } finally {
+    await otherContext.close();
+  }
+});
+
+test("完了済みの削除は保存成功後に反映し、再読込・別端末・翌週でも購入済みを維持する", async ({
+  page,
+  context,
+  browser,
+}) => {
+  const original = demoState();
+  const before = structuredClone(original);
+  const rows = new Map<string, Row>([[A, { document: original, revision: 1 }]]);
+  await mockApi(context, rows);
+  await login(page, "a@example.com");
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "買い物", exact: true })
+    .click();
+  await page
+    .getByRole("checkbox", { name: "鶏もも肉を購入済みにする", exact: true })
+    .click();
+  await page.locator(".shopping-completed > summary").click();
+  const trash = page.getByRole("button", {
+    name: "鶏もも肉を完了済みから削除",
+    exact: true,
+  });
+  await trash.click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "キャンセル", exact: true })
+    .click();
+  expect(
+    rows.get(A)!.document.shopping.some((i) => i.name === "鶏もも肉"),
+  ).toBe(true);
+  await trash.click();
+  const failOnce = (route: Route) =>
+    route.fulfill({
+      status: 500,
+      contentType: "application/json",
+      headers: {
+        "access-control-allow-origin": "*",
+        "access-control-allow-headers": "*",
+      },
+      body: JSON.stringify({ message: "Test save failure" }),
+    });
+  await context.route("**/rest/v1/rpc/save_planner", failOnce);
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "削除する", exact: true })
+    .click();
+  await expect(page.getByRole("dialog").getByRole("alert")).toBeVisible();
+  expect(
+    rows.get(A)!.document.shopping.some((i) => i.name === "鶏もも肉"),
+  ).toBe(true);
+  await context.unroute("**/rest/v1/rpc/save_planner", failOnce);
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "削除する", exact: true })
+    .click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  const saved = rows.get(A)!.document;
+  expect(saved.shopping.some((i) => i.name === "鶏もも肉")).toBe(false);
+  expect(saved.recipes).toEqual(before.recipes);
+  expect(saved.week.meals.map((m) => m.id)).toEqual(
+    before.week.meals.map((m) => m.id),
+  );
+  expect(saved.shopping.filter((i) => i.name !== "鶏もも肉")).toEqual(
+    before.shopping.filter((i) => i.name !== "鶏もも肉"),
+  );
+  await page.reload();
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "買い物", exact: true })
+    .click();
+  await expect(
+    page.locator(".shopping-item").filter({ hasText: "鶏もも肉" }),
+  ).toHaveCount(0);
+  const otherContext = await browser.newContext();
+  try {
+    await mockApi(otherContext, rows);
+    const other = await otherContext.newPage();
+    await login(other, "a@example.com");
+    await other
+      .getByRole("navigation")
+      .getByRole("button", { name: "買い物", exact: true })
+      .click();
+    await expect(
+      other.locator(".shopping-item").filter({ hasText: "鶏もも肉" }),
+    ).toHaveCount(0);
+    await other
+      .getByRole("navigation")
+      .getByRole("button", { name: "献立", exact: true })
+      .click();
+    await other.getByRole("button", { name: /翌週に切り替える/ }).click();
+    await other
+      .getByRole("dialog")
+      .getByRole("button", { name: "履歴を保存して翌週へ" })
+      .click();
+    await other
+      .getByRole("navigation")
+      .getByRole("button", { name: "買い物", exact: true })
+      .click();
+    await expect(
+      other.locator(".shopping-item").filter({ hasText: "鶏もも肉" }),
+    ).toHaveCount(0);
+    expect(rows.get(A)!.document.recipes).toEqual(before.recipes);
+  } finally {
+    await otherContext.close();
+  }
+});
+
 test("貼り付けた材料を既存RPCで保存・復元し、登録済みレシピ・献立・買い物を保つ", async ({
   page,
   context,
