@@ -5,7 +5,7 @@ import {
   type Route,
 } from "@playwright/test";
 import type { PlannerState } from "../../src/lib/model";
-import { demoState } from "../../src/lib/model";
+import { demoState, newId } from "../../src/lib/model";
 
 test.skip(
   !process.env.E2E_AUTH,
@@ -93,6 +93,166 @@ async function login(page: import("@playwright/test").Page, email: string) {
     page.getByRole("heading", { name: "今週の献立", exact: true }),
   ).toBeVisible();
 }
+
+test("一括削除は1回の保存で確定し、保存失敗・再読込・翌週でも未購入品と他店を保護する", async ({
+  page,
+  context,
+}) => {
+  const original = demoState();
+  const names = ["鶏もも肉", "しょうゆ"];
+  original.shopping.forEach((i) => {
+    if (names.includes(i.name)) i.checked = true;
+  });
+  original.shopping.push(
+    {
+      ...original.shopping[0],
+      id: newId(),
+      name: "他店の購入済み",
+      source: "manual",
+      checked: true,
+      storeId: original.stores[1].id,
+    },
+    {
+      ...original.shopping[0],
+      id: newId(),
+      name: "未購入の日用品",
+      source: "manual",
+      checked: false,
+    },
+  );
+  const before = structuredClone(original);
+  const ids = original.shopping
+    .filter((i) => i.checked && i.storeId === original.stores[0].id)
+    .map((i) => i.id);
+  const rows = new Map<string, Row>([[A, { document: original, revision: 1 }]]);
+  await mockApi(context, rows);
+  await login(page, "a@example.com");
+  let saves = 0;
+  page.on("request", (r) => {
+    if (
+      r.method() === "POST" &&
+      new URL(r.url()).pathname.endsWith("/save_planner")
+    )
+      saves++;
+  });
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "買い物", exact: true })
+    .click();
+  await page.getByRole("tab", { name: /カネスエ/ }).click();
+  const bulk = page.getByRole("button", {
+    name: "完了済みの商品を一括削除",
+    exact: true,
+  });
+  const dialog = page.getByRole("dialog");
+  await bulk.click();
+  await expect(dialog).toHaveAccessibleName(
+    "購入済みの商品2件をまとめて削除しますか？",
+  );
+  await dialog.getByRole("button", { name: "キャンセル", exact: true }).click();
+  expect(saves).toBe(0);
+  expect(rows.get(A)!.document).toEqual(before);
+  await bulk.click();
+  const fail = (route: Route) =>
+    route.request().method() === "OPTIONS"
+      ? route.fallback()
+      : route.fulfill({
+          status: 500,
+          contentType: "application/json",
+          headers: {
+            "access-control-allow-origin": "*",
+            "access-control-allow-headers": "*",
+          },
+          body: JSON.stringify({ message: "Test batch failure" }),
+        });
+  await context.route("**/rest/v1/rpc/save_planner", fail);
+  await dialog
+    .getByRole("button", { name: "まとめて削除する", exact: true })
+    .click();
+  await expect(dialog.getByRole("alert")).toBeVisible();
+  expect(saves).toBe(1);
+  expect(rows.get(A)!.revision).toBe(1);
+  expect(rows.get(A)!.document).toEqual(before);
+  await expect(page.locator(".shopping-completed > summary")).toContainText(
+    "2 商品",
+  );
+  await context.unroute("**/rest/v1/rpc/save_planner", fail);
+  let releaseSave!: () => void;
+  let startedSave!: () => void;
+  const released = new Promise<void>((resolve) => {
+    releaseSave = resolve;
+  });
+  const started = new Promise<void>((resolve) => {
+    startedSave = resolve;
+  });
+  const holdSave = async (route: Route) => {
+    if (route.request().method() === "OPTIONS") return route.fallback();
+    startedSave();
+    await released;
+    await route.fallback();
+  };
+  await context.route("**/rest/v1/rpc/save_planner", holdSave);
+  await dialog
+    .getByRole("button", { name: "まとめて削除する", exact: true })
+    .click();
+  await started;
+  try {
+    await expect(
+      dialog.getByRole("button", { name: "処理中…", exact: true }),
+    ).toBeDisabled();
+    await expect(page.locator(".shopping-completed > summary")).toContainText(
+      "2 商品",
+    );
+    expect(rows.get(A)!.document).toEqual(before);
+  } finally {
+    releaseSave();
+  }
+  await expect(dialog).toHaveCount(0);
+  await context.unroute("**/rest/v1/rpc/save_planner", holdSave);
+  expect(saves).toBe(2); // One failed request, then one atomic successful request.
+  expect(rows.get(A)!.revision).toBe(2);
+  const saved = rows.get(A)!.document;
+  expect(saved.shopping).toEqual(
+    before.shopping.filter((i) => !ids.includes(i.id)),
+  );
+  expect(saved.recipes).toEqual(before.recipes);
+  expect(saved.history).toEqual(before.history);
+  expect(saved.week.meals.map(({ stocked, ...meal }) => meal)).toEqual(
+    before.week.meals.map(({ stocked, ...meal }) => meal),
+  );
+  await page.reload();
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "買い物", exact: true })
+    .click();
+  for (const name of names)
+    await expect(
+      page.locator(".shopping-item").filter({ hasText: name }),
+    ).toHaveCount(0);
+  await expect(
+    page.locator(".shopping-item").filter({ hasText: "未購入の日用品" }),
+  ).toHaveCount(1);
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "献立", exact: true })
+    .click();
+  await page.getByRole("button", { name: /翌週に切り替える/ }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "履歴を保存して翌週へ", exact: true })
+    .click();
+  await page
+    .getByRole("navigation")
+    .getByRole("button", { name: "買い物", exact: true })
+    .click();
+  for (const name of names)
+    await expect(
+      page.locator(".shopping-item").filter({ hasText: name }),
+    ).toHaveCount(0);
+  await expect(
+    page.locator(".shopping-item").filter({ hasText: "未購入の日用品" }),
+  ).toHaveCount(1);
+});
 
 test("旧データの初期店舗をカネスエとして扱い、変更設定を保存・別端末で復元しても個別店舗を守る", async ({
   page,

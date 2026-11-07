@@ -1080,8 +1080,21 @@ input[type="checkbox"] {
   font-weight: 400;
   margin-left: 8px;
 }
-.shopping-completed {
+.shopping-completed-wrap {
+  position: relative;
   margin-top: 28px;
+}
+.shopping-completed-wrap > .shopping-bulk-delete {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  z-index: 1;
+  min-height: 44px;
+  min-width: 104px;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+.shopping-completed {
   border: 1px solid var(--line);
   border-radius: 14px;
   background: var(--paper);
@@ -1090,7 +1103,7 @@ input[type="checkbox"] {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 16px;
+  padding: 16px 124px 16px 16px;
   min-height: 56px;
   cursor: pointer;
   list-style: none;
