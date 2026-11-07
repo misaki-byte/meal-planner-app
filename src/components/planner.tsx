@@ -32,6 +32,7 @@ import {
   addMeal,
   CATEGORIES,
   deleteCompletedShopping,
+  deleteCompletedShoppingItems,
   deleteStore,
   formatQuantity,
   getDefaultStoreId,
@@ -294,6 +295,19 @@ export default function Planner() {
                   saving={saving}
                   onAdd={() => setEditor({ type: "shopping" })}
                   onEdit={(item) => setEditor({ type: "shopping", item })}
+                  onBulkDelete={(items, storeId, storeName) => {
+                    const ids = items.map((item) => item.id);
+                    setConfirm({
+                      title: `購入済みの商品${ids.length}件をまとめて削除しますか？`,
+                      description: `対象：${storeName}。完了済みの商品を買い物リストから完全に削除します。未購入の商品・レシピ帳・今週の献立・過去の履歴は残ります。自動生成品はこの献立分を購入済みとして扱います。この削除は取り消せません。`,
+                      label: "まとめて削除する",
+                      action: () =>
+                        app.commit(
+                          (s) => deleteCompletedShoppingItems(s, ids, storeId),
+                          `購入済みの商品${ids.length}件を削除しました`,
+                        ),
+                    });
+                  }}
                   onDelete={(item) =>
                     setConfirm({
                       title: "完了済みの商品を削除しますか？",
@@ -882,6 +896,7 @@ function ShoppingView({
   onEdit,
   onToggle,
   onDelete,
+  onBulkDelete,
 }: {
   state: PlannerState;
   saving: boolean;
@@ -889,6 +904,11 @@ function ShoppingView({
   onEdit: (i: ShoppingItem) => void;
   onToggle: (id: string) => void;
   onDelete: (i: ShoppingItem) => void;
+  onBulkDelete: (
+    items: ShoppingItem[],
+    storeId: string | null | undefined,
+    storeName: string,
+  ) => void;
 }) {
   const [store, setStore] = useState("all");
   const matches = (i: ShoppingItem) =>
@@ -1063,32 +1083,55 @@ function ShoppingView({
             />
           )}
         </section>
-        <details className="shopping-completed">
-          <summary>
-            <CheckCheck size={22} />
-            <span>
-              完了済み{" "}
-              <span className="completed-count">{completed.length} 商品</span>
-            </span>
-            <ChevronRight size={20} className="completed-chevron" />
-          </summary>
-          <div
-            className="shopping-completed-body"
-            role="region"
-            aria-label="完了済みの商品"
+        <div className="shopping-completed-wrap">
+          <button
+            type="button"
+            className="button secondary shopping-bulk-delete"
+            aria-label="完了済みの商品を一括削除"
+            disabled={saving || !completed.length}
+            onClick={() =>
+              onBulkDelete(
+                completed,
+                store === "all" ? undefined : store === "none" ? null : store,
+                store === "all"
+                  ? "すべての店舗"
+                  : store === "none"
+                    ? "お店未定"
+                    : (state.stores.find((s) => s.id === store)?.name ??
+                      "選択中のお店"),
+              )
+            }
           >
-            <p className="muted">
-              チェックを外すと「買うもの」に戻ります。ゴミ箱で削除する前に確認します。
-            </p>
-            {completed.length ? (
-              renderCategories(completed)
-            ) : (
-              <p className="completed-empty">
-                このお店の完了済みの商品はありません。
+            <Trash2 size={18} />
+            一括削除
+          </button>
+          <details className="shopping-completed">
+            <summary>
+              <CheckCheck size={22} />
+              <span>
+                完了済み{" "}
+                <span className="completed-count">{completed.length} 商品</span>
+              </span>
+              <ChevronRight size={20} className="completed-chevron" />
+            </summary>
+            <div
+              className="shopping-completed-body"
+              role="region"
+              aria-label="完了済みの商品"
+            >
+              <p className="muted">
+                チェックを外すと「買うもの」に戻ります。ゴミ箱で削除する前に確認します。
               </p>
-            )}
-          </div>
-        </details>
+              {completed.length ? (
+                renderCategories(completed)
+              ) : (
+                <p className="completed-empty">
+                  このお店の完了済みの商品はありません。
+                </p>
+              )}
+            </div>
+          </details>
+        </div>
       </div>
       <div className="shopping-footnote">
         <CloudCheck size={16} />

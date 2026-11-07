@@ -256,30 +256,57 @@ export function deleteCompletedShopping(
   state: PlannerState,
   itemId: string,
 ): PlannerState {
-  const item = state.shopping.find((i) => i.id === itemId);
-  if (!item?.checked) throw new Error("完了済みの商品だけ削除できます。");
-  const key = ingredientKey(item.name, item.unit);
-  return syncShopping({
+  return deleteCompletedShoppingItems(state, [itemId]);
+}
+
+/** Delete exactly the confirmed IDs in one operation. undefined scope means all
+ * stores; null means unassigned. Reject a stale/unsafe selection before changing
+ * any rows or credits. Both single and bulk deletion use this implementation.
+ */
+export function deleteCompletedShoppingItems(
+  state: PlannerState,
+  itemIds: readonly string[],
+  storeId?: string | null,
+): PlannerState {
+  const ids = new Set(itemIds);
+  if (!ids.size) return state;
+  const items = state.shopping.filter((i) => ids.has(i.id));
+  if (
+    items.length !== ids.size ||
+    items.some(
+      (i) => !i.checked || (storeId !== undefined && i.storeId !== storeId),
+    )
+  )
+    throw new Error("完了済みの商品と店舗を確認し、もう一度操作してください。");
+  const purchasedKeys = new Set(
+    items
+      .filter((i) => i.source === "auto")
+      .map((i) => ingredientKey(i.name, i.unit)),
+  );
+  // Only confirmed rows leave the list. Other rows must not be normalized,
+  // merged, or removed as a side effect of deleting completed purchases.
+  return {
     ...state,
-    shopping: state.shopping.filter((i) => i.id !== itemId),
-    week:
-      item.source === "manual"
-        ? state.week
-        : {
-            ...state.week,
-            meals: state.week.meals.map((meal) => {
-              const required = mealIngredients(meal).get(key)?.quantity;
-              if (!required) return meal;
-              return {
-                ...meal,
-                stocked: {
-                  ...meal.stocked,
-                  [key]: Math.max(meal.stocked[key] ?? 0, required),
-                },
-              };
-            }),
-          },
-  });
+    shopping: state.shopping.filter((i) => !ids.has(i.id)),
+    week: !purchasedKeys.size
+      ? state.week
+      : {
+          ...state.week,
+          meals: state.week.meals.map((meal) => {
+            const ingredients = mealIngredients(meal);
+            const stocked = { ...meal.stocked };
+            let changed = false;
+            for (const key of purchasedKeys) {
+              const required = ingredients.get(key)?.quantity ?? 0;
+              if (required > (stocked[key] ?? 0)) {
+                stocked[key] = required;
+                changed = true;
+              }
+            }
+            return changed ? { ...meal, stocked } : meal;
+          }),
+        },
+  };
 }
 
 /** Archive atomically; purchased ingredients for unfinished meals become stock credits. */
