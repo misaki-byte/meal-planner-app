@@ -32,7 +32,7 @@ function token(id: string) {
 }
 async function mockApi(context: BrowserContext, rows: Map<string, Row>) {
   await context.route(
-    "https://e2e-placeholder.supabase.co/**",
+    `${process.env.E2E_SUPABASE_URL || "https://e2e-placeholder.supabase.co"}/**`,
     async (route: Route) => {
       const request = route.request();
       const url = new URL(request.url());
@@ -473,7 +473,7 @@ test("貼り付けた材料を既存RPCで保存・復元し、登録済みレ�
   await dialog.getByRole("button", { name: "レシピ帳を編集" }).click();
   await dialog
     .getByLabel("材料をまとめて貼り付ける")
-    .fill("【材料（2人分）】\n玉ねぎ 1/2個\n塩 少々");
+    .fill("【材料（2人分）】\n玉ねぎ\n1/2個\n塩\n少々");
   await dialog
     .getByRole("button", { name: "材料を解析する", exact: true })
     .click();

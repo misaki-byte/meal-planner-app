@@ -42,6 +42,9 @@ describe("日本語の材料貼り付け", () => {
     ["しょうゆ：大さじ２", "しょうゆ", 2, "大さじ", "調味料"],
     ["玉ねぎ ½個", "玉ねぎ", 0.5, "個", "野菜・果物"],
     ["牛乳 1½カップ", "牛乳", 1.5, "カップ", "卵・乳製品"],
+    ["しょうゆ 大さじ：２", "しょうゆ", 2, "大さじ", "調味料"],
+    ["砂糖 小さじ:1/2", "砂糖", 0.5, "小さじ", "調味料"],
+    ["玉ねぎ・・・1/2個", "玉ねぎ", 0.5, "個", "野菜・果物"],
   ])(
     "%sを食材・分量・単位・カテゴリに変換する",
     (source, name, quantity, unit, category) => {
@@ -85,6 +88,42 @@ describe("日本語の材料貼り付け", () => {
       ]);
     },
   );
+  it("食材名と分量が別行のコピーでも元の行番号と原文を保つ", () => {
+    const result = parseIngredients(
+      "【材料（２人分）】\r\n・玉ねぎ\r\n１／２個\r\n豚肉 300g\r\nA しょうゆ\r\n大さじ：２\r\n塩\r\n少々\r\n牛乳\r\n１００ＭＬ",
+    );
+    expect(
+      result.ingredients.map((r) => [r.name, r.quantity, r.unit, r.line]),
+    ).toEqual([
+      ["玉ねぎ", 0.5, "個", 2],
+      ["豚肉", 300, "g", 4],
+      ["しょうゆ", 2, "大さじ", 5],
+      ["塩", 1, "少々", 7],
+      ["牛乳", 100, "ml", 9],
+    ]);
+    expect(result.ingredients[0].source).toBe("・玉ねぎ\n１／２個");
+    expect(result.ingredients[2].source).toBe("A しょうゆ\n大さじ：２");
+    expect(result.ingredients.every((r) => r.issues.length === 0)).toBe(true);
+    expect(result.servings.map((s) => s.value)).toEqual([2]);
+  });
+  it("別行の解釈で見出し・空行・不明な行・別の材料を飛ばして結合しない", () => {
+    const result = parseIngredients(
+      "【不明な見出し】\n大さじ2\n玉ねぎ\n\n1/2個\nにんじん\n豚肉 300g\n塩\n-2g\n砂糖\n小さじ1/0",
+    );
+    expect(result.ingredients.map((r) => r.source)).toEqual([
+      "【不明な見出し】",
+      "大さじ2",
+      "玉ねぎ",
+      "1/2個",
+      "にんじん",
+      "豚肉 300g",
+      "塩",
+      "-2g",
+      "砂糖\n小さじ1/0",
+    ]);
+    expect(result.ingredients.at(-1)?.quantity).toBeNull();
+    expect(result.ingredients.at(-1)?.issues.length).toBeGreaterThan(0);
+  });
   it("人数の範囲・重複・複数候補を勝手に選ばない", () => {
     const result = parseIngredients(
       "材料（2〜3人分）\n2人分\n4人前\n豚肉 300g",
