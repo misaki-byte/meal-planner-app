@@ -1,0 +1,35 @@
+name: Verify ingredient import
+on:
+  push:
+    branches: [codex/verify-ingredient-import]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Unit and database tests
+        run: npm test
+      - name: TypeScript
+        run: npm run typecheck
+      - run: npx playwright install --with-deps chromium
+      - name: Production build (sample)
+        run: npm run build
+      - name: Mobile regression (sample)
+        run: npm run test:e2e -- --workers=2
+      - name: Production build (mock authentication)
+        run: npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://e2e-placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: e2e-publishable-placeholder
+      - name: Authentication and persistence regression (mock API)
+        run: npm run test:e2e -- --workers=2
+        env:
+          E2E_AUTH: "1"
