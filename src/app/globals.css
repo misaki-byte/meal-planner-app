@@ -2673,6 +2673,24 @@ input[type="checkbox"] {
   font-size: 0.85rem;
   line-height: 1.6;
 }
+.bulk-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin: 12px 0 18px;
+  padding: 0;
+  list-style: none;
+  font-size: 0.85rem;
+  color: var(--text-muted, #655f57);
+}
+.bulk-steps [aria-current="step"] {
+  font-weight: 700;
+  color: var(--text, #342e28);
+}
+.bulk-summary {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
 .bulk-actions,
 .bulk-servings {
   display: flex;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import {
   CATEGORIES,
   ingredientKey,
@@ -34,6 +34,7 @@ export function BulkIngredients({
   onPendingChange: (pending: boolean) => void;
 }) {
   const helpId = useId();
+  const previewRef = useRef<HTMLHeadingElement>(null);
   const [text, setText] = useState("");
   const [parsedText, setParsedText] = useState("");
   const [result, setResult] = useState<IngredientParseResult | null>(null);
@@ -55,9 +56,15 @@ export function BulkIngredients({
   const valid = (row: ReviewRow) => ingredientSchema.safeParse(row).success;
   const needsReview = (row: ReviewRow) =>
     row.issues.length > 0 || duplicate(row);
+  const remaining = selected.filter(
+    (row) => !valid(row) || (needsReview(row) && !row.acknowledged),
+  ).length;
   const ready =
     selected.length > 0 &&
     selected.every((r) => valid(r) && (!needsReview(r) || r.acknowledged));
+  useEffect(() => {
+    if (result) previewRef.current?.focus();
+  }, [result]);
   const update = (id: string, patch: Partial<ReviewRow>) => {
     setRows((current) =>
       current.map((r) => (r.id === id ? { ...r, ...patch } : r)),
@@ -74,6 +81,12 @@ export function BulkIngredients({
 
   return (
     <section className="bulk-ingredients" aria-label="材料の一括入力">
+      <h3>材料をまとめて登録</h3>
+      <ol className="bulk-steps" aria-label="一括登録の手順">
+        <li aria-current={!result ? "step" : undefined}>1. 貼り付け</li>
+        <li aria-current={result ? "step" : undefined}>2. 確認・編集</li>
+        <li>3. 食材欄に追加</li>
+      </ol>
       <label className="field">
         材料をまとめて貼り付ける
         <textarea
@@ -91,8 +104,8 @@ export function BulkIngredients({
         />
       </label>
       <p id={helpId} className="muted">
-        YouTubeの概要欄や料理サイトの材料を、1行ずつまとめて貼り付けてください。
-        端末内で解析し、確認後に食材欄へ追加します。
+        YouTubeの概要欄や料理サイトの材料をまとめて貼り付けてください。
+        食材名と分量が別々の行でも読み取れます。解析結果を確認・編集してから追加できます。
       </p>
       <div className="bulk-actions">
         <button
@@ -135,7 +148,14 @@ export function BulkIngredients({
 
       {result && (
         <div className="bulk-preview">
-          <h3>解析結果（{rows.length}行）</h3>
+          <h3 ref={previewRef} tabIndex={-1}>
+            解析結果（{rows.length}行）
+          </h3>
+          {rows.length > 0 && (
+            <p className="bulk-summary" role="status">
+              追加対象 {selected.length}行・確認待ち {remaining}行
+            </p>
+          )}
           <p className="muted">
             食材欄への追加前に、各行を修正できます。追加する行にチェックを付けてください。既存の食材は残ります。
           </p>

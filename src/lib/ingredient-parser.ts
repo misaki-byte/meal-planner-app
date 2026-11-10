@@ -64,10 +64,16 @@ const amountLast = new RegExp(
   "i",
 );
 const spoonFirst = new RegExp(
-  `^(.+?)\\s*(大さじ|小さじ|カップ)\\s*(約)?\\s*(${numeric})(半)?$`,
+  `^(.+?)\\s*(大さじ|小さじ|カップ)\\s*[:：]?\\s*(約)?\\s*(${numeric})(半)?$`,
 );
 const vagueLast =
   /^(.+?)\s*(各)?\s*(少々|適量|ひとつまみ|ひとつかみ|お好みで)$/;
+// Some recipe sites copy their name and amount columns onto separate lines.
+// Join only an immediately following, complete amount; never guess across headings.
+const amountOnly = new RegExp(
+  `^(?:(?:約\\s*)?${numeric}\\s*(?:${units})(?:半)?|(?:大さじ|小さじ|カップ)\\s*[:：]?\\s*(?:約\\s*)?${numeric}(?:半)?|少々|適量|ひとつまみ|ひとつかみ|お好みで)$`,
+  "i",
+);
 
 function numberValue(text: string): number | null {
   if (text === "半") return 0.5;
@@ -99,116 +105,126 @@ export function parseIngredients(text: string): IngredientParseResult {
     headings: [],
   };
   const sources = text.replace(/\r\n?/g, "\n").split("\n");
-  normalize(text)
-    .split("\n")
-    .forEach((raw, index) => {
-      const source = sources[index]?.trim() ?? raw.trim();
-      let line = cleanPrefix(raw);
-      if (!line) {
-        if (source) result.headings.push(source);
-        return;
-      }
-      // Only remove a line when its entire content is a recognized heading/serving label.
-      const addServings = (values: number[]) => {
-        if (values.every((n) => n >= 1 && n <= 100)) {
-          for (const value of values) {
-            if (!result.servings.some((s) => s.value === value)) {
-              result.servings.push({ value, source });
-            }
+  const lines = normalize(text).split("\n");
+  let consumedLine = -1;
+  lines.forEach((raw, index) => {
+    if (index === consumedLine) return;
+    let source = sources[index]?.trim() ?? raw.trim();
+    let line = cleanPrefix(raw);
+    if (!line) {
+      if (source) result.headings.push(source);
+      return;
+    }
+    // Only remove a line when its entire content is a recognized heading/serving label.
+    const addServings = (values: number[]) => {
+      if (values.every((n) => n >= 1 && n <= 100)) {
+        for (const value of values) {
+          if (!result.servings.some((s) => s.value === value)) {
+            result.servings.push({ value, source });
           }
         }
-      };
-      // Also offer counts inside prose, while retaining the complete line for review.
-      for (const match of line.matchAll(
-        /(?:^|[^\d])(\d{1,3})\s*(?:[〜~～\-–]\s*(\d{1,3})\s*)?人(?:分|前)/g,
-      )) {
-        addServings(match.slice(1).filter(Boolean).map(Number));
       }
-      const label = line.replace(/[【】\[\]()<>〈〉《》:：*#]/g, " ").trim();
-      const servingLabel = label.replace(/^(?:材料|分量|食材)\s*/, "");
-      const serving = servingLabel.match(
-        /^(\d+)\s*(?:[〜~～\-–]\s*(\d+)\s*)?人(?:分|前)?$/,
-      );
-      if (serving) {
-        const values = [
-          ...new Set(serving.slice(1).filter(Boolean).map(Number)),
-        ];
-        if (values.every((n) => n >= 1 && n <= 100)) {
-          addServings(values);
-          result.headings.push(source);
-          return;
-        }
-      }
-      if (
-        /^(?:材料|分量|食材|調味料|合わせ調味料|下味|たれ|タレ|トッピング|仕上げ|作り方|手順|[A-Z])$/.test(
-          label,
-        )
-      ) {
+    };
+    // Also offer counts inside prose, while retaining the complete line for review.
+    for (const match of line.matchAll(
+      /(?:^|[^\d])(\d{1,3})\s*(?:[〜~～\-–]\s*(\d{1,3})\s*)?人(?:分|前)/g,
+    )) {
+      addServings(match.slice(1).filter(Boolean).map(Number));
+    }
+    const label = line.replace(/[【】\[\]()<>〈〉《》:：*#]/g, " ").trim();
+    const servingLabel = label.replace(/^(?:材料|分量|食材)\s*/, "");
+    const serving = servingLabel.match(
+      /^(\d+)\s*(?:[〜~～\-–]\s*(\d+)\s*)?人(?:分|前)?$/,
+    );
+    if (serving) {
+      const values = [...new Set(serving.slice(1).filter(Boolean).map(Number))];
+      if (values.every((n) => n >= 1 && n <= 100)) {
+        addServings(values);
         result.headings.push(source);
         return;
       }
+    }
+    if (
+      /^(?:材料|分量|食材|調味料|合わせ調味料|下味|たれ|タレ|トッピング|仕上げ|作り方|手順|[A-Z])$/.test(
+        label,
+      )
+    ) {
+      result.headings.push(source);
+      return;
+    }
 
-      const issues: string[] = [];
-      // Keep preparation notes as part of the name; a trailing amount note needs review.
-      const amountNote = line.match(/\s*\([^)]*\d[^)]*\)\s*$/);
-      if (amountNote) {
-        const without = line.slice(0, amountNote.index).trim();
-        if (amountLast.test(without) || spoonFirst.test(without)) {
-          line = without;
-          issues.push("括弧内の補足分量を原文で確認してください。");
-        }
+    const next = lines[index + 1]?.trim() ?? "";
+    if (
+      !/[\d]|半$|(?:少々|適量|ひとつまみ|ひとつかみ|お好みで)$/.test(line) &&
+      !/^[【\[(].*[】\])]$/.test(line) &&
+      amountOnly.test(next)
+    ) {
+      line = `${line} ${next}`;
+      source += `\n${sources[index + 1].trim()}`;
+      consumedLine = index + 1;
+    }
+
+    const issues: string[] = [];
+    // Keep preparation notes as part of the name; a trailing amount note needs review.
+    const amountNote = line.match(/\s*\([^)]*\d[^)]*\)\s*$/);
+    if (amountNote) {
+      const without = line.slice(0, amountNote.index).trim();
+      if (amountLast.test(without) || spoonFirst.test(without)) {
+        line = without;
+        issues.push("括弧内の補足分量を原文で確認してください。");
       }
-      let name = line;
-      let quantity: number | null = null;
-      let unit = "";
-      const last = line.match(amountLast);
-      const first = line.match(spoonFirst);
-      const vague = line.match(vagueLast);
-      if (first || last) {
-        const m = (first ?? last)!;
-        name = m[1];
-        unit = first ? m[2] : m[4];
-        quantity = numberValue(first ? m[4] : m[3]);
-        if (m[5] && quantity !== null) quantity += 0.5;
-        if (first ? m[3] : m[2])
-          issues.push("「約」の付いた分量です。確認してください。");
-      } else if (vague) {
-        name = vague[1];
-        quantity = 1;
-        unit = vague[3];
-        if (vague[2])
-          issues.push(
-            "複数の食材に「各」が付いています。必要なら個別入力してください。",
-          );
-      } else {
-        issues.push("分量・単位を判定できません。原文を残しています。");
-      }
-      name = name.replace(/[\s:：・.…‥]+$/, "").trim();
-      unit = unit.toLowerCase().replace(/^cc$/, "ml");
-      // Do not interpret ranges, alternatives, or several ingredients as a single amount.
-      if (/[\d/〜~～]|(?:各|または|又は)|[、,]|[-−+]\s*$/.test(name)) {
+    }
+    let name = line;
+    let quantity: number | null = null;
+    let unit = "";
+    const last = line.match(amountLast);
+    const first = line.match(spoonFirst);
+    const vague = line.match(vagueLast);
+    if (first || last) {
+      const m = (first ?? last)!;
+      name = m[1];
+      unit = first ? m[2] : m[4];
+      quantity = numberValue(first ? m[4] : m[3]);
+      if (m[5] && quantity !== null) quantity += 0.5;
+      if (first ? m[3] : m[2])
+        issues.push("「約」の付いた分量です。確認してください。");
+    } else if (vague) {
+      name = vague[1];
+      quantity = 1;
+      unit = vague[3];
+      if (vague[2])
         issues.push(
-          "範囲・複数の材料などが含まれています。食材と分量を確認してください。",
+          "複数の食材に「各」が付いています。必要なら個別入力してください。",
         );
-        quantity = null;
-      }
-      if (quantity === null && (first || last))
-        issues.push("分量は0より大きく、100万以下で入力してください。");
-      if (!name || name.length > 100)
-        issues.push("食材名を1〜100文字に修正してください。");
-      const category = inferIngredientCategory(name);
-      if (category === "その他")
-        issues.push("カテゴリを判定できません。確認してください。");
-      result.ingredients.push({
-        line: index + 1,
-        source,
-        name,
-        quantity,
-        unit,
-        category,
-        issues,
-      });
+    } else {
+      issues.push("分量・単位を判定できません。原文を残しています。");
+    }
+    name = name.replace(/[\s:：・.…‥]+$/, "").trim();
+    unit = unit.toLowerCase().replace(/^cc$/, "ml");
+    // Do not interpret ranges, alternatives, or several ingredients as a single amount.
+    if (/[\d/〜~～]|(?:各|または|又は)|[、,]|[-−+]\s*$/.test(name)) {
+      issues.push(
+        "範囲・複数の材料などが含まれています。食材と分量を確認してください。",
+      );
+      quantity = null;
+    }
+    if (quantity === null && (first || last))
+      issues.push("分量は0より大きく、100万以下で入力してください。");
+    if (!name || name.length > 100)
+      issues.push("食材名を1〜100文字に修正してください。");
+    const category = inferIngredientCategory(name);
+    if (category === "その他")
+      issues.push("カテゴリを判定できません。確認してください。");
+    result.ingredients.push({
+      line: index + 1,
+      source,
+      name,
+      quantity,
+      unit,
+      category,
+      issues,
     });
+  });
   return result;
 }
 

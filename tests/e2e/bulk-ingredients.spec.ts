@@ -16,7 +16,7 @@ test("スマホで材料をまとめて貼り付け、要確認の行を修正�
 }) => {
   const requests: string[] = [];
   page.on("request", (request) => {
-    if (!request.url().startsWith("http://127.0.0.1:3000"))
+    if (new URL(request.url()).origin !== new URL(page.url()).origin)
       requests.push(request.url());
   });
   await page.getByRole("button", { name: "レシピを追加", exact: true }).click();
@@ -154,5 +154,60 @@ test("編集中の食材を保ち、未追加の解析結果・再解析・重�
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.locator(".recipe-card-main").click();
   await dialog.getByRole("button", { name: "レシピ帳を編集" }).click();
+  await expect(dialog.getByLabel("食材5の名前")).toHaveValue("卵");
+});
+
+test("幅360pxで別行の材料を確認・編集し、個別入力も併用して保存できる", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 360, height: 800 });
+  await page.getByRole("button", { name: "レシピを追加", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("料理名", { exact: true }).fill("別行コピーレシピ");
+  await expect(
+    dialog.getByRole("list", { name: "一括登録の手順" }),
+  ).toBeVisible();
+  await dialog
+    .getByLabel("材料をまとめて貼り付ける")
+    .fill(
+      "【材料（2人分）】\n玉ねぎ\n1/2個\n豚肉・・・300g\nA しょうゆ\n大さじ：2\n塩\n少々\n材料の補足文",
+    );
+  await dialog
+    .getByRole("button", { name: "材料を解析する", exact: true })
+    .click();
+  await expect(
+    dialog.getByRole("heading", { name: "解析結果（5行）" }),
+  ).toBeFocused();
+  await expect(dialog.locator(".bulk-summary")).toHaveText(
+    "追加対象 5行・確認待ち 1行",
+  );
+  await expect(dialog.getByLabel("解析結果1の分量")).toHaveValue("0.5");
+  await expect(dialog.getByLabel("解析結果3の単位")).toHaveValue("大さじ");
+  await dialog.getByLabel("解析結果3の分量").fill("1.5");
+  await dialog
+    .getByRole("checkbox", { name: "解析結果5を追加する", exact: true })
+    .uncheck();
+  await expect(dialog.locator(".bulk-summary")).toHaveText(
+    "追加対象 4行・確認待ち 0行",
+  );
+  expect(await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(
+    true,
+  );
+  await dialog
+    .getByRole("button", { name: "確認した4行を食材欄に追加" })
+    .click();
+  await dialog.getByRole("button", { name: "食材を追加", exact: true }).click();
+  await dialog.getByLabel("食材5の名前").fill("卵");
+  await dialog
+    .getByRole("button", { name: "レシピを保存", exact: true })
+    .click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page
+    .getByRole("searchbox", { name: "レシピを検索" })
+    .fill("別行コピーレシピ");
+  await page.locator(".recipe-card-main").click();
+  await dialog.getByRole("button", { name: "レシピ帳を編集" }).click();
+  await expect(dialog.getByLabel("食材1の分量")).toHaveValue("0.5");
+  await expect(dialog.getByLabel("食材3の分量")).toHaveValue("1.5");
   await expect(dialog.getByLabel("食材5の名前")).toHaveValue("卵");
 });
